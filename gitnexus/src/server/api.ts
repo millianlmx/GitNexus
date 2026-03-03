@@ -22,6 +22,7 @@ import { hybridSearch } from '../core/search/hybrid-search.js';
 // at server startup — crashes on unsupported Node ABI versions (#89)
 import { LocalBackend } from '../mcp/local/local-backend.js';
 import { mountMCPEndpoints } from './mcp-http.js';
+import { createRestRouter } from './rest-api.js';
 
 const buildGraph = async (): Promise<{ nodes: GraphNode[]; relationships: GraphRelationship[] }> => {
   const nodes: GraphNode[] = [];
@@ -129,6 +130,9 @@ export const createServer = async (port: number, host: string = '127.0.0.1') => 
   const backend = new LocalBackend();
   await backend.init();
   const cleanupMcp = mountMCPEndpoints(app, backend);
+
+  // Mount REST API v1 (CLI features over HTTP)
+  app.use('/rest/v1', createRestRouter(backend));
 
   // Helper: resolve a repo by name from the global registry, or default to first
   const resolveRepo = async (repoName?: string) => {
