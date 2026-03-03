@@ -99,7 +99,17 @@ const parseGitHubUrl = (url: string): { cloneUrl: string; repoName: string } | n
   return null;
 };
 
-const cloneGitHubRepo = async (githubUrl: string): Promise<{ path: string; cloned: boolean }> => {
+/**
+ * Build git CLI args that inject an Authorization header for private repos.
+ * Uses `-c http.extraheader=...` so the token never leaks into .git/config.
+ */
+const buildGitAuthArgs = (token?: string): string[] => {
+  if (!token) return [];
+  const encoded = Buffer.from(`x-access-token:${token}`).toString('base64');
+  return ['-c', `http.extraheader=Authorization: Basic ${encoded}`];
+};
+
+const cloneGitHubRepo = async (githubUrl: string, token?: string): Promise<{ path: string; cloned: boolean }> => {
   const parsed = parseGitHubUrl(githubUrl);
   if (!parsed) {
     throw new Error(`Invalid GitHub URL: ${githubUrl}`);
@@ -107,6 +117,7 @@ const cloneGitHubRepo = async (githubUrl: string): Promise<{ path: string; clone
 
   const { cloneUrl, repoName } = parsed;
   const targetDir = path.join(CLONE_BASE_DIR, repoName);
+  const authArgs = buildGitAuthArgs(token);
 
   await fs.mkdir(CLONE_BASE_DIR, { recursive: true });
 
@@ -121,7 +132,7 @@ const cloneGitHubRepo = async (githubUrl: string): Promise<{ path: string; clone
     
     if (existingRemote === cloneUrl) {
       await new Promise<void>((resolve, reject) => {
-        execFile('git', ['-C', targetDir, 'fetch', '--all'], (err) => {
+        execFile('git', [...authArgs, '-C', targetDir, 'fetch', '--all'], (err) => {
           if (err) reject(err);
           else resolve();
         });
@@ -133,7 +144,7 @@ const cloneGitHubRepo = async (githubUrl: string): Promise<{ path: string; clone
   }
 
   await new Promise<void>((resolve, reject) => {
-    execFile('git', ['clone', '--depth', '1', cloneUrl, targetDir], { timeout: 300000 }, (err) => {
+    execFile('git', [...authArgs, 'clone', '--depth', '1', cloneUrl, targetDir], { timeout: 300000 }, (err) => {
       if (err) reject(new Error(`Failed to clone ${cloneUrl}: ${err.message}`));
       else resolve();
     });
@@ -303,12 +314,14 @@ export function createRestRouter(backend: LocalBackend): Router {
 
   // ─── Repos: Analyze (async job) ───────────────────────────────────
   // POST /rest/v1/repos/analyze
-  // Body: { path?: "/path/to/repo", github?: "https://github.com/owner/repo", force?: boolean, embeddings?: boolean }
+  // Body: { path?: "/path/to/repo", github?: "https://github.com/owner/repo", token?: "ghp_...", force?: boolean, embeddings?: boolean }
+  // token: GitHub PAT for private repos. Falls back to GITHUB_TOKEN env var.
 
   router.post('/repos/analyze', async (req: Request, res: Response) => {
     try {
       const githubUrl = typeof req.body.github === 'string' ? req.body.github : undefined;
       const localPath = typeof req.body.path === 'string' ? req.body.path : undefined;
+      const token = typeof req.body.token === 'string' ? req.body.token : process.env.GITHUB_TOKEN;
 
       if (!githubUrl && !localPath) {
         res.status(400).json({ error: 'Missing "path" or "github" in request body' });
@@ -318,7 +331,7 @@ export function createRestRouter(backend: LocalBackend): Router {
       let resolvedPath: string;
 
       if (githubUrl) {
-        const cloneResult = await cloneGitHubRepo(githubUrl);
+        const cloneResult = await cloneGitHubRepo(githubUrl, token);
         resolvedPath = cloneResult.path;
       } else {
         resolvedPath = path.resolve(localPath!);
