@@ -10,10 +10,9 @@ export interface ASTCache {
 }
 
 export const createASTCache = (maxSize: number = 50): ASTCache => {
-  // Initialize the cache with a 'dispose' handler
-  // This is the magic: When an item is evicted (dropped), this runs automatically.
+  const effectiveMaxSize = Math.max(1, maxSize);
   const cache = new LRUCache<string, Parser.Tree>({
-    max: maxSize,
+    max: effectiveMaxSize,
     dispose: (tree) => {
       try {
         // NOTE: web-tree-sitter has tree.delete(); native tree-sitter trees are GC-managed.
