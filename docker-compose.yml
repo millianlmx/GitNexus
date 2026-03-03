@@ -1,0 +1,19 @@
+services:
+  gitnexus:
+    build:
+      context: ./gitnexus
+      dockerfile: Dockerfile
+    ports:
+      - "4747:4747"
+    volumes:
+      - gitnexus-data:/root/.gitnexus
+    environment:
+      - NODE_OPTIONS=--max-old-space-size=8192
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 10G
+
+volumes:
+  gitnexus-data:
